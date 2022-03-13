@@ -1,0 +1,601 @@
+# 158.739  A4 
+# Jane He (18034770)
+# Subject: New Zealand Suicide Rate Investigation
+
+import requests                 
+from bs4 import BeautifulSoup   
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import networkx as nx
+import seaborn as sns
+import sqlite3
+import datetime as dt
+import json
+import csv
+import re
+
+from time import sleep
+from datetime import datetime
+from matplotlib import cm
+
+
+rcParams['figure.figsize'] = 15, 10
+rcParams['font.size'] = 20
+
+## Work Flow
+### 1. Data Acquring: 
+    This report is to expolore the youth suicide in New Zealand by acquiring data from data.govt.nz using web API (Application Programming Interface), from Wikipedia using Web Scraping, and from the Ministry of Health downlouding excel files.
+
+### 2. Data Wrangling: 
+    Data will be wrangled by using python3 language in Jupyter, then followed by Exploration Data Analysis and Visuliazations.
+    
+### 3. Data Integration:
+    Data frames that come from different sources will be integrated into one.
+    
+### 4. Data Persistence: (in a different Jupyter notebook)
+    SQLite database will be used to persist the datasets and DB views will be created. 
+    Various queries will be performed to extract data from the DB.
+    Visulizations also will be in this section.
+    
+### 5. Data Analysis:
+    Group by, Pivot table, cross tabulation, and visulizations are included in this section.
+
+## 1.0 Background
+
+    Youth Suicide is defined as a young person (aged 15-24) delibrately end their own life, and is an extreme indicator of negative wellbeing. 
+    
+### Indicator
+
+    youth suicide rate was calculating as : 
+    Numerater: the number of youth (aged 15-24) dying in a given year with suicide as the main cause of death
+    Denominator: estimated population of the same age group on the 30th of June of the given year.
+    
+### How is NZ Youth Suicide Rate compared to other western countries?
+
+    The World Psychiatric Association provided a table of youth suicide rate (per 100,000) of different countries (only the countries that have data available).
+    NZ ranked the 5th highest of total youth suicide rate among 20 countries. By giving the year of data collected, the youth suicide rate of NZ was higher than Canda and Austria, but lower than Sri Lanka and Russian Federation.
+
+### Meaning of the measures
+    The number of suicide counts and the rate are both important for measuring suicide.
+### The number of suicide counts
+    The total number of suicide represents individuals that are suspected as dead by suicide. That is the official number of people that have been found dead by suicide.
+    The suicide rate is counted in the unit of per hundred thousand people and the rate is considered to be more helpful in comparisons with datas over time while adjusting the population size. Especially the diversity of ethnicity due to the multiculturalism in NZ, each ethnicity has its own population size. For example, Maori has smaller population than the one of non-Maori group. It is definitely useful to compare the suicide rate of Maori with the suicide rate of non-Maori so that suicide prevention initiatives could be set up targeting the group with higher rate.
+    Another example could be seen as different adult age groups. In our datasets, we have 4 adult age groups: 15-24, 24-44, 45-64, and 65+. Each age group has its own unique socio-psychological stage. Thus, interventions for people with mental disorders can be urgent to predict and prevend suicide death from different perspectives. 
+    
+### Data sets
+1. Web-Scraping data from wiki web page<br>
+Youth suicide rates among different countries in the world<br>
+2. Web-API data from the Minitstry of Health<br>
+NZ Youth suicide rate (Total, Male, Female)<br>
+3. Excel datasets<br>
+NZ suicide rates between Maori (male, female) and non-Maori (male, female)<br>
+NZ suicide rates between Male (age 15-24, 24-44, 45-64, 65+) and Female (age 15-24, 24-44, 45-64, 65+)<br>
+
+
+## Web Scraping
+
+url = "https://en.wikipedia.org/wiki/Youth_suicide"
+scraping = requests.get(url)
+
+soup=BeautifulSoup(scraping.content,'html.parser')
+table=soup.findAll('tbody')
+body =table[2].findAll('tr')
+
+head = body[0] 
+body_rows = body[1:] 
+headings = []
+for item in head.find_all("th"): 
+    item = (item.text).rstrip("\n")
+    headings.append(item)
+#print(headings)
+
+all_rows = [] 
+for row_num in range(len(body_rows)): 
+    row = [] 
+    for row_item in body_rows[row_num].find_all("td"): 
+        aa = re.sub("(\xa0)|(\n)|,","",row_item.text)
+        row.append(aa)
+    all_rows.append(row)
+
+    
+international_youth_suicide = pd.DataFrame(data=all_rows,columns=headings)
+international_youth_suicide.head()
+
+
+international_youth_suicide.info()
+
+international_youth_suicide.describe()
+
+# Assign a new dataframe that contains the the 20 observations from the first dataframe.
+isc=international_youth_suicide[:20]
+convert_dict = {'Total': float,
+                'Rate of Females': float,'Rate of Males':float,
+                'Year of Data': int
+               }
+  
+isc = isc.astype(convert_dict)
+print(isc.dtypes)
+isc=isc.round(2)
+isc.head(2)
+
+# Save this datafram into a csv file.
+isc.to_csv (r'../datasets/isc.csv', header=True,index=False)
+
+x=isc.Country
+y=isc.Total
+
+x_ticks = range(len(x))
+fig,ax = plt.subplots(figsize=(20,8))
+width = 0.8
+bars=plt.bar(x, y, width=0.8, color='grey')
+bars[5].set_color('r')
+
+
+ax.set_axisbelow(True)
+
+plt.xticks(x_ticks,x, fontsize=14,rotation=30)
+plt.yticks(fontsize=14 )
+
+plt.title('Total Youth Suicide Rate by Different Countries', fontsize=20, fontweight='bold')
+plt.ylabel('Total Youth Suicide Rate (per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Countries',fontsize=16,weight='bold')
+plt.box(False)
+plt.text(x='New Zealand',y=15.3,s='15.3', ha='center', fontsize=14)
+ax.yaxis.grid(linewidth=0.5,color='silver')
+plt.show()
+
+
+
+
+## Graph Description:
+The bar graph above is showing us that New Zealand ranks the 6th top youth suicide rate with 15.3 per 100,000, which is higher than the ones of Ireland and Canada.<br>
+<br>
+The other bar chart below is used for comparing the male youth suicide rate among the same countries. <br>
+It is clearly to see that, even NZ has very high total suicide rate, its male suicide rate is relatively low as compared to the one of other countries ranking the 6th from the lowest.
+
+x=isc.Country
+y=isc['Rate of Males']
+
+x_ticks = range(len(x))
+fig,ax = plt.subplots(figsize=(20,8))
+bars=sns.barplot(x=x, y=y, palette="mako", ax=ax,
+                order=isc.sort_values('Rate of Males').Country)
+
+
+plt.xticks(x_ticks,x, fontsize=14,rotation=30)
+plt.yticks(fontsize=14 )
+plt.title('Male Youth Suicide Rate by Different Countries', fontsize=20, fontweight='bold')
+plt.ylabel('Male Youth Suicide Rate',fontsize=16)
+plt.xlabel ('Countries',fontsize=16)
+ax.yaxis.grid(linewidth=0.5,color='black')
+# put the grid lines below bars
+ax.set_axisbelow(True)
+plt.box(False)
+plt.show()
+
+
+
+## 2.0 Sub-Groups Analysis
+## Which group in NZ has higher suicide rate?
+## Male vs. Female
+
+## Web- API
+
+url = "https://catalogue.data.govt.nz/api/3/action/datastore_search?resource_id=18a78833-8b8b-4f7d-86d9-26a7bdc67fbe"
+response = requests.get(url)
+response
+response_json = response.content
+re=json.loads(response_json)
+re_dict = re['result']['records'] 
+re_df = pd.DataFrame(re_dict )
+re_df.head()###Youth (15 to 24 year-olds) suicide rates.1996-2017
+
+### Data Wrangling of API dataset
+
+# Create dictionary to perform astype to 'Female' and 'Male' columns.
+convert_dict = {'Female': float,
+                'Male':float,
+              }
+  
+re_df = re_df.astype(convert_dict)
+print(re_df.dtypes)
+re_df=re_df[:22]
+
+# Create a date column for the dataset.
+date=[]
+for i in range(1996,2018):
+
+    date.append(i)
+    
+print(date)
+re_df['year'] = date
+re_df= re_df.set_index(['year'])
+
+
+# The '2012' row has values of 0s, so we will calculate the mean value of each column 
+#and replace those values their own means.
+fm=re_df.Female.mean()
+mm=re_df.Male.mean()
+tm=re_df.Total.mean()
+re_df['Female'] = re_df['Female'].replace([0],fm)
+re_df['Male'] = re_df['Male'].replace([0],mm)
+re_df['Total'] = re_df['Total'].replace([0],tm)
+
+re_df=re_df.drop(columns=['_id'])
+re_df.round(2).head()
+
+# Save this dataframe into a csv file
+re_df.info()
+re_df.to_csv (r'../datasets/gender.csv', header=True)
+
+fig,ax = plt.subplots(figsize=(20,8))
+sns.lineplot(data=re_df, palette="tab10", linewidth=2.5)
+
+plt.xticks(range(1996, 2018,2), fontsize=14)
+plt.yticks(fontsize=14 )
+
+plt.title('Youth Suicide Rate: 1996-2018', fontsize=20, fontweight='bold')
+plt.ylabel('Youth Suicide Rate(per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Year',fontsize=16,weight='bold')
+
+plt.legend(fontsize=14)
+ax.yaxis.grid(linewidth=0.5,color='black')
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.set_axisbelow(True)
+plt.show()
+
+
+## Graph Descriptions:
+This graph is used to compare the youth suicide rate (age 15-24) between male and female.<br>
+There are thress lines in the graph: Total suicide rate, Male suicide rate, and Female suicide rate.<br>
+The thress lines are fluctuating over the 21 years, with the suicide rate various for: male group in a range of 15-75, total group in a range of 15-55, female group in a range of 5-32.<br>
+It is clear to see that, in the year 2003, all groups'suicide rate have a local peak, and in the year 2014 only male and total groups have a peak.<br>
+On average, male group has higher suicide rate than female group. The local maximum of male group reaches around 75 per 100,000, while the local maximum of female group only appears around 32 per 100,000. Male group has three peaks over the 21 years:75 per 100,000 (year 2003), 73 per 100,000 (year 2014), 58 per 100,000 (year 2016). On the other hand, the three peaks of female group are: 32 per 100,000 (year 2003), 25 per 100,000 (year 2007), 18 per 100,000 (year 2010).
+
+## Boxplot to detect Outliers
+
+fig,ax = plt.subplots(figsize=(15,6))
+ax = sns.boxplot(x=re_df['Total'])
+plt.title('Boxplot of Total Suicide Rate', fontsize=20, fontweight='bold')
+plt.xticks( fontsize=14)
+plt.xlabel ('Total Suicide Rate (PER 100,000)',fontsize=16,weight='bold')
+plt.ylabel('Total',fontsize=16,weight='bold')
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+
+ax.yaxis.grid(linewidth=0.5,color='silver')
+ax.set_axisbelow(True)
+plt.show()
+
+def find_outlier(column):
+    
+    for i in column:
+        if i >40:
+            print ('Outlers:',i)
+            print('Year',re_df[column==i].index.values)
+        
+find_outlier(re_df['Total'])
+
+fig,ax = plt.subplots(figsize=(15,6),dpi=90)
+sns.set_theme(style="whitegrid")
+sns.boxplot(data=re_df, orient="h", palette="Set2")
+plt.xticks( fontsize=14)
+plt.yticks(fontsize=14 )
+plt.title('Comparisons between Groups', fontsize=20, fontweight='bold')
+plt.ylabel('Suicide Rate (per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Groups',fontsize=16,weight='bold')
+ax.set_axisbelow(True)
+plt.show()
+
+find_outlier(re_df['Male'])
+
+## Box plot decriptions:
+The box plot revealed that the suicide rate of male is obvioursly higher than the suicide rate of female. The median of female group is around 10 per 100,000, while the median of male is 30 per 100,000. The inner quantile range of female is much smaller than the inner quantile range of male group. The extreme values of male group appear above 50 per 100,000. Those extreme high suicide values deserve to be further investigated for the causes and countermeasures behind them.
+
+## Excel datasets
+
+   The external excel datasets were downloaded from the Ministry of Health New Zealand under the name "Suicide Facts: Data tables 1996−2016".
+
+excel_file = 'suicide.xlsx'
+df=pd.read_excel(excel_file, sheet_name=4)
+df.dropna(how='all', inplace=True)
+df.columns = df.iloc[0]
+df=df.iloc[1:]
+df.drop(10, inplace=True)
+df.drop(columns=df.columns[0],inplace=True)
+df=df.reset_index(drop=True)
+df.head(2)
+
+# Set up multy index for the dataframe.
+group=[]
+for i in range(12):
+    if i<6:
+        string="Maori"
+    else:
+        string="Non-Maori"
+    group.append(string)
+ 
+#print(group)
+sex=['Total', 'T_rate','Male','M_rate', 'Female','F_rate','Total', 'T_rate', 'Male','M_rate', 'Female','F_rate']
+a=[group,sex]
+tuples = list(zip(*a))
+index = pd.MultiIndex.from_tuples(tuples, names=["group",'sex'])
+df.set_index(index,drop=True, inplace=True)
+df.head(2)
+
+dft=df.T
+dft.index.name = 'year'
+dft.to_csv (r'../datasets/maori.csv', header=True)
+dft.head()
+
+g=['Maori','Non-Maori']
+ymt=dft['Maori']['T_rate'].mean()
+ynt=dft['Non-Maori']['T_rate'].mean()
+h=[16.55,11.15]
+
+# Make a bar plot to compare the suicide rate between Maori and non-Maori.
+g_pos = [i for i, _ in enumerate(g)]
+fig,ax = plt.subplots(figsize=(20,8))
+bars=sns.barplot(x=g,y= h, palette="crest", ax=ax)
+
+plt.xticks( fontsize=14)
+plt.yticks( fontsize=14)
+plt.title('Total Suicide Rate between Maori and Non-Maori', fontsize=20, fontweight='bold')
+plt.ylabel(' Suicide Rate(per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Groups',fontsize=16,weight='bold')
+plt.box(False)
+ax.yaxis.grid(linewidth=0.5,color='black')
+ax.set_axisbelow(True)
+
+plt.show()
+
+### The suicide rate for Maori group (16.55 per 100,000) is apparently higher than the suicide rate of  non-Maori group (11.15 per 100,000).
+
+## Whether the suicide rate differentiates between  Maori and non-Maori in each gender? 
+## Male suicide rate between Maori and non-Maori
+
+x=dft.index
+ym=dft['Maori']['M_rate']
+yn=dft['Non-Maori']['M_rate']
+
+fig,ax = plt.subplots(figsize=(20,8))
+plt.plot(x,ym, linestyle='--', label='Maori Male')
+plt.plot(x,yn, label='Non-Maori Male')
+
+plt.xticks(range(1996, 2018,2), fontsize=14)
+plt.yticks(range(10,40,5),fontsize=14 )
+
+plt.title('Male Suicide Rate between Maori and Non-Maori', fontsize=20, fontweight='bold')
+plt.ylabel(' Suicide Rate(per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Year',fontsize=16,weight='bold')
+plt.box(False)
+
+ax.yaxis.grid(linewidth=0.5,color='silver')
+ax.set_axisbelow(True)
+plt.legend(fontsize=18)
+plt.show()
+
+### The average suicide rate of Maori male is higher than non-Maori male. Also, the line of Maori male fluctuate more than the line of non-Maori male. This means the variation of Maori male's suicide rate is bigger than the variation of non-Maori's suicide rate. <br><br>  The highest suicide rate for Maori male is as high as 35 per 100,000 in year 1998, while the highest suicide rate of non-Maori male is approximately 22 per 100,000 in year 1997. <br> <br> I have noticed that the average rate of non-Maori male is gradually decreasing over time, but the average rate of Maori male does not seem to decline over time. This finding has set an urgent suicide prevention initiatives targeting Maori male.
+
+## Female suicide rate between Maori and non-Maori
+
+x=dft.index
+ym=dft['Maori']['F_rate']
+yn=dft['Non-Maori']['F_rate']
+
+fig,ax = plt.subplots(figsize=(20,8))
+plt.plot(x,ym, linestyle='--', label='Maori female')
+plt.plot(x,yn, label='Non-Maori female')
+
+plt.xticks(range(1996, 2018,2), fontsize=14)
+plt.yticks(range(0,15,2),fontsize=14 )
+
+plt.title('Female Suicide Rate between Maori and Non-Maori', fontsize=20, fontweight='bold')
+plt.ylabel(' Suicide Rate(per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Year',fontsize=16,weight='bold')
+plt.box(False)
+
+ax.yaxis.grid(linewidth=0.5,color='silver')
+ax.set_axisbelow(True)
+plt.legend(fontsize=18)
+plt.show()
+
+### This line graph also reveals that Maori female has higher average suicide rate than non-Maori female. The fluctuation range for Maori female is 4-12 per 100,000, and the fluctuation range for non-Maori female is 4-7. <br><br>It is clear that the average suicide rate of Maori female is much lower than the average suicide rate of Maori male. These findings are along with previous findings that the total suicide rate of male is higher than the total suicide rate of female.
+
+excel_file = 'suicide.xlsx'
+df5=pd.read_excel(excel_file, sheet_name=5)
+df5.dropna(how='all', inplace=True)
+
+df5=df5.reset_index(drop=True)
+df5=df5[12:]
+df5['Sex']=['Total','Total','Total','Total','Male','Male','Male','Male','Female','Female','Female','Female']
+df5=df5.reset_index(drop=True)
+df5=df5.drop(columns=df5.columns[2])
+df51=df5.set_index(['Sex','Age (years)'])
+df5.head()
+
+## Pivot Table
+
+# Mean value for each gender group in every year
+pd.pivot_table(df5, index=['Sex'],  aggfunc='mean')
+
+# Mean value for each age group in every year
+pd.pivot_table(df5, index=['Age (years)'],  aggfunc='mean')
+
+# Mean value for each age group in each gender group for every year
+pd.pivot_table(df5, index=['Sex','Age (years)'],  aggfunc='mean')
+
+## Crosstab
+
+pd.crosstab(index=df5['Sex'], columns=df5['Age (years)'])
+
+pd.crosstab(index=df5['Age (years)'], columns=df5['Sex'])
+
+df5t=df51.T
+df5t.index.name = 'year'
+df5t=df5t.round(2)
+
+df5t.to_csv (r'/Users/jane/Downloads/158739 Intro to Analytics/datasets/agesex.csv', header=True)
+
+df5t.info()
+
+print(df5.groupby(df5['Sex']).count())
+g=df5.groupby('Sex').mean()
+g
+
+# A heat map of suicide rate of all adult age groups.
+g1=df5.groupby('Age (years)').mean()
+g1
+f, ax = plt.subplots(figsize=(15, 8))
+sns.heatmap(g1, annot=True, linewidths=.5, ax=ax)
+
+### Light color indicates higher suicide rate, while the dark color indicates lower suicide rate. <br> Groups '15-24' and '25-44' contain more number of cells with ligh color than groups '45-64' and '65+', which means the average suicide rate of the former two groups are higher than the latter ones. <br> The youth group (age 15-24) contains the highest suicide rate 26 per 100,000 in year 1996-1998. <br> In general, the suicide rate is decreasing over the years as the color of all the cells gradually turns to dark from left to right.
+
+# A line graph of suicide rage for adult age groups.
+fig,ax = plt.subplots(figsize=(20,8))
+sns.lineplot(data=df5t['Total'], palette="tab10", linewidth=2.5)
+plt.xticks(range(1996, 2018,2), fontsize=14)
+plt.yticks(fontsize=14 )
+
+plt.title('Suicide Rate for Age Groups ', fontsize=20, fontweight='bold')
+plt.ylabel(' Suicide Rate(per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Year',fontsize=16,weight='bold')
+plt.box(False)
+ax.set_axisbelow(True)
+plt.legend(fontsize=14)
+plt.show()
+
+
+# a Violin plot for male suicide rate.
+fig,ax = plt.subplots(figsize=(20,8))
+sns.violinplot(data=df5t['Male'], palette="light:g", inner="points", orient="h")
+
+plt.yticks(fontsize=14 )
+
+plt.title('Male Suicide Rate for Age Groups ', fontsize=20, fontweight='bold')
+plt.ylabel(' Age Groups',fontsize=16, weight='bold')
+plt.xlabel ('Suicide Rate(per 100,000)',fontsize=16,weight='bold')
+plt.box(False)
+ax.set_axisbelow(True)
+
+plt.show()
+
+
+### The violin graph shows the probability density of the data at different values.<br> It is clear to see that the youth group (age 15-24) has higher probability density between 25-30 and the its suicide rate range is the widest as well. Group '25-44' has similar suicide rate density with the youth group, but shorter range. The group '45-64' has the shortest suicide rate range, but has a dense suicide rate between 20-25. The age group 65+ has a high density of suicide rate between 15-18, and its range is between 6-33.
+
+f, ax = plt.subplots(figsize=(20,8))
+sns.violinplot(data=df5t['Female'], palette="Set3", bw=.2, cut=1, linewidth=1)
+plt.yticks(fontsize=14 )
+plt.xticks(fontsize=14)
+plt.title('Female Suicide Rate for Age Groups ', fontsize=20, fontweight='bold')
+plt.ylabel(' Suicide Rate(per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Age Groups',fontsize=16,weight='bold')
+
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.set_axisbelow(True)
+
+plt.show()
+
+
+### Another violin plot for female group.  <br> Each age group has its own variation probability density. <br>The youth group still has the highest average suicide rate and the widest range, and has a high probability of suicide rate of 8, 11, and 13.
+
+## What is associating with this high variation of suicide rate crossing different age groups, different gender groups, and different ethniciy groups?
+
+Research has shown us that the relative risk factors are multi-dimensional (Brådvik, 2018). Mental disorders, such as depression, substance use disorders, have been found strongly associated with suicide attempts. Adverse Childhood Experience (ACE) could results in negative mental health problems in adulthoods (Cleare, Wetherall, Clark, et al., 2018). Stress-diathesis models are also related to high tendency for people experiencing suicide ideation (Mann,  Waternaux, Haas, et al., 1999).
+<br>
+Thus, I have imported a file from the Wellbeing NZ survey and found out that the acceptance of people with mental disorders are much lower as compared to the acceptance of people with a different ethnicity.<br>
+
+### Down below, the first bar graph is showing the percentage of people who feel comfortable towards a new neighbour 1) who has a different ethnicity; 2) who had a mental disorder. <br> To my surprise, more than 80% people feel comfortable with a new neighbour who has a different ethnicity, while only 50% people feel comfortable towards a new neighbour who had a mental disorder. <br> This lower acceptance increases the stress-diathesis for people with mental disorders, which indirectly increases their likelyhood of experiencing suicide ideation.
+
+
+<br>
+<br>
+References: <br>
+Brådvik, L. (2018). Suicide Risk and Mental Disorders. International journal of environmental research and public health, 15(9), 2028. https://doi.org/10.3390/ijerph15092028
+
+Cleare, S, Wetherall, K, Clark, A, Ryan, C, Kirtley, OJ, Smith, M, O'Connor, RC. (2018). Adverse Childhood Experiences and Hospital-Treated Self-Harm. International Journal of Environmental Research and Public Health.  doi: 10.3390/ijerph15061235. 
+
+Mann, J. J., Waternaux, C., Haas, G. L., & Malone, K. M. (1999). Toward a Clinical Model of Suicidal Behavior in Psychiatric Patients. The American Journal of Psychiatry, 156(2), 181–189.
+
+
+excel_file = 'suicide.xlsx'
+df1=pd.read_excel(excel_file, sheet_name=0)
+df1=df1.drop(columns=df1.columns[1:3])
+df1=df1.drop(columns=df1.columns[2:4])
+df1=df1[-2:]
+f, ax = plt.subplots(figsize=(15, 8))
+sns.barplot(x='Measure',y='Total population(1)', data=df1, palette="Set2", ax=ax)
+plt.xticks( fontsize=12)
+plt.yticks(fontsize=14 )
+plt.title( 'Feeling Comfortable towards A New Neighbour',fontsize=20, fontweight='bold')
+plt.ylabel('Percentage',fontsize=16, weight='bold')
+plt.xlabel ('Measure',fontsize=16,weight='bold')
+
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.set_axisbelow(True)
+plt.show()
+
+### Gay or lesbian and Bisexual adults face high rate of discrimination
+Over one third for gay or lesibian adults (34.1%) and bisexual adults (39.3%) have experienced discrimination in last year. Meanwhile 16.3% heterosexual or straight adults have experienced discrimination in last year.<br>
+Stress level has been put up from the low social acceptance towards bisexual and gay or lesbian adults.
+
+# Reading data set from csv file into a dataframe
+excel_file = 'suicide.xlsx'
+df2=pd.read_excel(excel_file, sheet_name=1)
+df2=df2[-1:]
+df2=df2.dropna(axis=1)
+df2=df2.drop(columns=df2.columns[7])
+df2t=df2.T
+df2t.columns = df2t.iloc[0]
+df2t=df2t[1:]
+# Set multi-index for the datafram
+a=[['Total','Total','Heterosexual or straight', 'Heterosexual or straight',
+    'Gay or lesbian','Gay or lesbian', 
+    'Bisexual','Bisexual','Other identities','Other identities'],
+         ['Percent', 'ASE (Percentage Points)','Percent', 'ASE (Percentage Points)','Percent', 'ASE (Percentage Points)'
+  ,'Percent', 'ASE (Percentage Points)','Percent', 'ASE (Percentage Points)']]
+
+tuples = list(zip(*a))
+index = pd.MultiIndex.from_tuples(tuples, names=["Sexual Identity",'Estimate'])
+df2t.set_index(index,drop=True, inplace=True)
+# Transpose the dataframe
+df22=df2t.T
+df22
+
+## Merge dataframes 
+
+df0=pd.merge(re_df, dft, how='outer',left_index=True,right_index=True)
+dff=pd.merge(df0,df5t, how='outer',left_index=True,right_index=True)
+
+
+dff.info()
+
+dff=dff.round(2)
+dff.head()
+
+## Conclusion: 
+1. NZ has high youth suicide rate in the world (ranks the 6th highest) at the time data was collected.<br> 
+2. Male group has higher suicide rate than female. <br> 
+3. Maori has higher than non-Maori. <br> 
+4. The youth group (age 15-24) has higher probability densicity of higher suicide rate than other adult age groups. <br> 
+5. The average NZ suicide rate is decreasing over the 21 years. <br> 
+6. Combining with suicide risk studies, we also found out that lower acceptance towards people with mental disorders and higher discrimination rates for bisexual and gay or lesbian adults.<br> 
+There are urgent calling for suicide prevention initiatives targeting those groups that have outstanding suicide rate.
+
+## Limitations:
+1. Datasets that contain Depression rate cannot be found through the Ministry of Health. Other wise, performing the correlation analysis between depression and suicide death rate can reveal the relationship between them.<br>
+2. The risk factors for Maori group need to be further investigated. Especially the risk factors that behind the high suicide rate for young Maori Male. Some possibilities that I could think of: whether body image of 'big tough guy'has put pressure on the young men who don't have 'big' muscles (masculinity); whether negative impacts resulting from culture identity and colonisation.<br>
+3. While comparing the suicide rate among ethnicity groups, it would be better if I can include more various ethnicity groups, such as Asian, Pacific Islanders.<br>
+4. School bullying has been found very high in NZ. This could be another approach to investigate the risk factors for suicide rate in NZ. <br>
+5. Reginal datasets could be included in the analysis. Subgrouping the dataset into different DHBs in terms of suicide rate and public mental service rate correspondently. <br>
+6. If we can add the reginal datasets into our analysis, a MAP of NZ with various bubble size indicating different suicide rate or different mental service use rate could be a straight forward way for data visulization.
+
+
+
+
+
