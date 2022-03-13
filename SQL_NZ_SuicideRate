@@ -1,0 +1,688 @@
+# 158.739 A3 Data Persistence Using SQLite
+# Jun(Jane) He (18034770)
+
+## Intro: 
+This report will perform data persistence using SQLite.
+First, schemas will be created, then automation of reading files from csv and writing data into SQLite tables. I will check whether the table has been created in our database by SELECT table names from sqlite_master.
+Complex and diverse SQLite Queries with clear readable structures are following, and couple graphs with descriptions are also performed.<br>
+At last, two DB Views will be performed.
+
+import requests                 
+from bs4 import BeautifulSoup   
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import networkx as nx
+import seaborn as sns
+import sqlite3
+import datetime as dt
+import json
+import csv
+import re
+
+from time import sleep
+from datetime import datetime
+from matplotlib import cm
+
+
+## DB Schema Documentation
+This database captured NZ suicide rates, which were broken down into groups by gender, age groups, enthnicity.
+All the tables, except for the first one that includes suicide rates from different countries, have data captured from year 1996 to 2017. 
+
+The unit of suicide rate is recorded as PER 100,000.<br> 
+Some tables have attribute for the number of suicide counts and also a suicide rate regarding the pariticular group.
+For instance, table3 Maori_Total has one column named"MaoriTotal"(INTEGER) that is the suicide counts, and another column named"MaoriTotalRate" (RATE) that contains suicide rate for Maori.
+### Table 1: countrie_rate 
+Attributes: CountryID      (INTEGER)<br> 
+            Country	       (TEXT)<br> 
+            Year of Data   (DATE)	<br> 
+            Rate of Males  (REAL)	<br> 
+            Rate of Females(REAL)<br> 
+            Total          (REAL)<br> 
+            
+### Table 2: gender_rate
+Attributes: ENTRY  (INTEGER) (PK) (INDEX)<br> 
+            Female (REAL)<br> 
+            Male   (REAL)<br> 
+            Total  (REAL) <br> 
+            year   (DATE)	<br> 
+            
+
+### Table 3: Maori_Total { ONE TO MANY} ==> maori_male, and maori_female
+Attributes: MaoriTotalID   (INTEGER) (PK) (INDEX)<br> 
+            MaoriTotal     (INTEGER)<br>  
+            MaoriTotalRate (REAL) <br> 
+            year           (DATE)<br> 
+            <br> 
+### Table 4: maori_male
+Attributes: MaoriMaleID (INTEGER) (PK) (INDEX)<br> 
+            MaoriMale   (INTEGER)<br> 
+            MaoriMaleRate (REAL) <br> 
+            year          (DATE)<br> 
+            MaoriTotalID   (INTEGER) (FK)<br> 
+            <br> 
+### Table 5: maori_female 
+Attributes: MaoriFemaleID   (INTEGER) (PK) (INDEX)<br> 
+            MaoriFemale     (INTEGER)<br> 
+            MaoriFemaleRate (REAL) <br> 
+            year            (DATE) <br> 
+            MaoriTotalID    (INTEGER) (FK)<br> 
+            <br> 
+### Table 6: nonmaori_total 
+Attributes: Non_MaoriID         (INTEGER) (PK) (INDEX)<br> 
+            Non_Maori_Total     (INTEGER)<br> 
+            Non_Maori_Total_Rate(REAL) <br> 
+            year                (DATE)<br> 
+            
+### Table 7: nonmaori_male 
+Attributes: Non_Maori_MaleID    (INTEGER) (PK) (INDEX)<br> 
+            Non_Maori_Male      (INTEGER)<br> 
+            Non_Maori_Male_Rate (REAL) <br> 
+            year                (DATE)<br> 
+            
+### Table 8: nonmaori_female 
+Attributes: Non_Maori_FemaleID    (INTEGER) (PK) (INDEX)<br> 
+            Non_Maori_Female      (INTEGER)<br> 
+            Non_Maori_Female_Rate (REAL) <br> 
+            year                  (DATE)<br> 
+            <br> 
+### Table 9: total_age
+Attributes: Total_Age_ID  (INTEGER) (PK) (INDEX)<br> 
+            Age(15-24)    (REAL)<br> 
+            Age(25-44)    (REAL)<br> 
+            Age(45-64)    (REAL)<br> 
+            Age(65+)      (REAL)<br> 
+            year          (DATE)<br> 
+            <br> 
+### Table 10: male_age
+Attributes: Male_Age_ID  (INTEGER) (PK) (INDEX)<br> 
+            Age(15-24)   (REAL)<br> 
+            Age(25-44)   (REAL)<br> 
+            Age(45-64)   (REAL)<br> 
+            Age(65+)     (REAL)<br> 
+            year         (DATE) <br> 
+            
+### Table 11: female_age
+Attributes: Female_Age_ID  (INTEGER) (PK) (INDEX)<br> 
+            Age(15-24)   (REAL)<br> 
+            Age(25-44)   (REAL)<br> 
+            Age(45-64)   (REAL)<br> 
+            Age(65+)     (REAL)<br> 
+            year         (DATE) <br> 
+
+!pip install ipython-sql
+
+# Connect to the database.
+%load_ext sql
+%sql sqlite:///../datasets/A3.db3
+
+# Creates and opens a file with a SQLite3 DB
+connection = sqlite3.connect('../datasets/A3.db3')
+cursor = connection.cursor()
+
+%sql sqlite:///../datasets/A3.db3 PRAGMA foreign_keys = ON;
+
+## Schema Definition
+## Reading files from flat-files and writing data into SQLite tables
+
+cursor.execute ("DROP TABLE IF EXISTS countrie_rate")
+#Create a table of coutries_rate
+cursor.execute ("""
+                    CREATE TABLE IF NOT EXISTS countrie_rate(
+                    Country  VARCHAR(50) NOT NULL,
+                    "Year of data" INTEGER,
+                    "Rate of Males" REAL,
+                    "Rate of Females" REAL,
+                    Total REAL,
+                    CountryID INTEGER NOT NULL UNIQUE,
+                    PRIMARY KEY (CountryID))
+                """
+                    )
+cursor.execute ("CREATE INDEX ix_countrie_rate_CountryID ON countrie_rate (CountryID)")
+connection.commit()
+
+countries_rate = pd.read_csv('../datasets/isc.csv')
+countries_rate.head()
+
+
+
+
+
+countries_rate.to_sql('countrie_rate', connection, if_exists='append', index=False)
+
+### Creating Table 2:  gender_rate (Suicide Rate for male and female including all age groups).
+
+
+gender_rate = pd.read_csv('../datasets/gender.csv')
+gender_rate.head(1)
+
+cursor.execute ("DROP TABLE IF EXISTS gender_rate")
+create_table="""
+    CREATE TABLE gender_rate (
+      entry INTEGER PRIMARY KEY UNIQUE ,
+      Female REAL(20) NOT NULL,
+      Male REAL NOT NULL,
+      Total REAL NOT NULL,
+      year date NOT NULL
+    ) 
+   """
+cursor.execute (create_table)
+connection.commit()
+
+cursor.execute ("CREATE INDEX ix_gender_rate_entry ON gender_rate (entry)")
+
+gender_rate.to_sql('gender_rate', connection, if_exists='append', index=False)
+
+### Creating Table 3:  maori_total (Suicide Rate for Maori including all age groups).
+
+maori=pd.read_csv('../datasets/maori.csv', header=None)
+maori=maori[3:]
+maori.head(1)
+mt=maori.loc[:,0:2]
+mt.columns=['year','MaoriTotal','MaoriTotalRate']
+mt.head(1)
+
+create_table="""
+    CREATE TABLE maori_total (
+      MaoriTotalID INTEGER PRIMARY KEY UNIQUE ,
+      MaoriTotal INTEGER NOT NULL,
+      MaoriTotalRate REAL NOT NULL,
+      year date NOT NULL
+       
+    )
+    """
+cursor.execute ('DROP TABLE IF EXISTS maori_total')
+cursor.execute (create_table)
+connection.commit()
+
+# Create index for this table.
+cursor.execute ("CREATE INDEX ix_maori_total_MaoriTotalID ON maori_total (MaoriTotalID)")
+
+mt.to_sql('maori_total', connection, if_exists='append', index=False)
+
+### Creating Table 4: maori_male (Suicide rate for male Maori including all age groups).
+
+mm=maori[[0,3,4]]
+mm.columns=['year','MaoriMale','MaoriMaleRate']
+
+cursor.execute ('DROP TABLE IF EXISTS maori_male')
+create_table="""
+    CREATE TABLE maori_male (
+      MaoriTotalID INTEGER,
+      MaoriMaleID INTEGER UNIQUE ,
+      MaoriMale INTEGER NOT NULL,
+      MaoriMaleRate REAL NOT NULL,
+      year date NOT NULL,
+      PRIMARY KEY (MaoriMaleID),
+      FOREIGN KEY (MaoriTotalID) REFERENCES MAORI_TOTAL(MaoriTotalID)
+    ) 
+    """
+
+cursor.execute (create_table)
+connection.commit()
+
+cursor.execute ("CREATE INDEX ix_maori_male_MaoriMaleID ON maori_male (MaoriMaleID)")
+
+mm.to_sql('maori_male', connection, if_exists='append', index=False)
+
+
+
+
+### Creating Table 5: maori_female (Suicide Rate of female Maori for all age groups).
+
+mf=maori[[0,5,6]]
+mf.columns=['year','MaoriFemale','MaoriFemaleRate']
+
+create_table="""
+    CREATE TABLE maori_female (
+      MaoriTotalID INTEGER,
+      MaoriFemaleID INTEGER PRIMARY KEY UNIQUE ,
+      MaoriFemale INTEGER NOT NULL,
+      MaoriFemaleRate REAL NOT NULL,
+      year date NOT NULL,
+      FOREIGN KEY (MaoriTotalID) REFERENCES MAORI_TOTAL(MaoriTotalID)
+    ) 
+    """
+cursor.execute ('DROP TABLE IF EXISTS maori_female')
+cursor.execute (create_table)
+connection.commit()
+mf.to_sql('maori_female', connection, if_exists='append', index=False)
+
+cursor.execute ("CREATE INDEX ix_maori_female_MaoriFemaleID ON maori_female (MaoriFemaleID)")
+
+### Creating Table 6: nonmaori_total (Suicide Rate of non-Maori including all age groups)
+
+nt=maori[[0,7,8]]
+nt.columns=['year','Non_Maori_Total','Non_Maori_Total_Rate']
+
+create_table="""
+    CREATE TABLE nonmaori_total (
+      "Non_MaoriID" INTEGER PRIMARY KEY UNIQUE ,
+      "Non_Maori_Total" INTEGER NOT NULL,
+      'Non_Maori_Total_Rate' REAL NOT NULL,
+      year date NOT NULL
+    ) 
+    """
+cursor.execute ('DROP TABLE IF EXISTS nonmaori_total')
+cursor.execute (create_table)
+connection.commit()
+nt.to_sql('nonmaori_total', connection, if_exists='append', index=False)
+
+cursor.execute ("CREATE INDEX ix_nonmaori_total_Non_MaoriID ON nonmaori_total (Non_MaoriID)")
+
+### Creating Table 7: nonmaori_male (Suicide Rate of non-Maori male including all age groups)
+
+nm=maori[[0,9,10]]
+nm.columns=['year','Non_Maori_Male','Non_Maori_Male_Rate']
+
+create_table="""
+    CREATE TABLE nonmaori_male (
+      "Non_Maori_MaleID" INTEGER PRIMARY KEY UNIQUE ,
+      "Non_Maori_Male" INTEGER NOT NULL,
+      'Non_Maori_Male_Rate' REAL NOT NULL,
+      year date NOT NULL
+    ) 
+    """
+
+cursor.execute (create_table)
+connection.commit()
+nm.to_sql('nonmaori_male', connection, if_exists='append', index=False)
+
+cursor.execute ("CREATE INDEX ix_nonmaori_male_Non_Maori_MaleID ON nonmaori_male (Non_Maori_MaleID)")
+
+### Creating Table 8: nonmaori_female (Suicide Rate of non-Maori female including all age groups)
+
+nf=maori[[0,11,12]]
+nf.columns=['year','Non_Maori_Female','Non_Maori_Female_Rate']
+
+create_table="""
+    CREATE TABLE nonmaori_female (
+      "Non_Maori_FemaleID" INTEGER PRIMARY KEY UNIQUE ,
+      "Non_Maori_Female" INTEGER NOT NULL,
+      'Non_Maori_Female_Rate' REAL NOT NULL,
+      year date NOT NULL
+    ) 
+    """
+
+cursor.execute (create_table)
+connection.commit()
+nf.to_sql('nonmaori_female', connection, if_exists='append', index=False)
+
+cursor.execute ("CREATE INDEX ix_nonmaori_female_Non_Maori_FemaleID ON nonmaori_female (Non_Maori_FemaleID)")
+
+### Creating Table 9: total_age (Suicide Rate of all age groups)
+
+age_rate = pd.read_csv('../datasets/agesex.csv')
+age=age_rate.iloc[2:]
+age=age.rename(columns={"Sex": "year",'Total':'Age(15-24)','Total.1':'Age(25-44)',
+                       'Total.2':'Age(45-64)','Total.3':'Age(65+)',
+                      'Male':'Age(15-24)' , 'Male.1':'Age(25-44)','Male.2':'Age(45-64)','Male.3':'Age(65+)',
+                       'Female':'Age(15-24)','Female.1':'Age(25-44)','Female.2':'Age(45-64)','Female.3':'Age(65+)'})
+age.head(1)
+
+ta=age.iloc[:,0:5]
+ta.columns.tolist()
+ta=ta.astype(float)
+ta['year']=ta['year'].astype(int)
+ta.info()
+
+
+create_table="""
+    CREATE TABLE total_age (
+       "Total_Age_ID" INTEGER PRIMARY KEY UNIQUE ,
+      "Age(15-24)" REAL NOT NULL,
+      'Age(25-44)' REAL NOT NULL,
+      'Age(45-64)' REAL NOT NULL,
+      'Age(65+)'   REAL NOT NULL,
+      year         date NOT NULL
+    ) 
+    """
+cursor.execute ('DROP TABLE IF EXISTS total_age')
+cursor.execute (create_table)
+connection.commit()
+ta.to_sql('total_age', connection, if_exists='append', index=False)
+
+cursor.execute ("CREATE INDEX ix_total_age_Total_Age_ID ON total_age (Total_Age_ID)")
+
+### Creating Table 10: male_age (Suicide Rate of male for all age groups)
+
+ma=age.iloc[:,5:9]
+ma=ma.merge(age[['year']], how='outer',left_index=True, right_index=True)
+
+cursor.execute ('DROP TABLE IF EXISTS male_age')
+create_table="""
+    CREATE TABLE male_age (
+       "Male_Age_ID" INTEGER PRIMARY KEY UNIQUE ,
+      "Age(15-24)" REAL NOT NULL,
+      'Age(25-44)' REAL NOT NULL,
+      'Age(45-64)'REAL NOT NULL,
+      'Age(65+)' REAL NOT NULL,
+      year date NOT NULL
+    ) 
+    """
+
+cursor.execute (create_table)
+connection.commit()
+ma.to_sql('male_age', connection, if_exists='append', index=False)
+
+cursor.execute ("CREATE INDEX ix_male_age_Male_Age_ID ON male_age (Male_Age_ID)")
+
+### Creating Table 11: female_age (Suicide Rate of male for all age groups)
+
+fa=age.iloc[:,9:13]
+fa=fa.merge(age[['year']], how='outer',left_index=True, right_index=True)
+
+create_table="""
+    CREATE TABLE female_age (
+       "Female_Age_ID" INTEGER PRIMARY KEY UNIQUE ,
+      "Age(15-24)" REAL NOT NULL,
+      'Age(25-44)' REAL NOT NULL,
+      'Age(45-64)'REAL NOT NULL,
+      'Age(65+)' REAL NOT NULL,
+      year date NOT NULL
+    ) 
+    """
+
+cursor.execute (create_table)
+connection.commit()
+fa.to_sql('female_age', connection, if_exists='append', index=False)
+
+cursor.execute ("CREATE INDEX ix_female_age_Female_Age_ID ON female_age (Female_Age_ID)")
+
+connection.close()
+
+## DB Population:  performing checking that the data has been persisted in the SQLite DB
+
+%sql SELECT name FROM sqlite_master WHERE type='table'
+
+%sql select * from maori_total LIMIT 2
+
+## SQLite Queries
+
+## 1. To select 'Country' and 'Total'(suicide rate) from table 1 coutry_rate <br>
+
+
+%%sql coutry_rate <<
+SELECT 
+    Country, 
+    Total as Youth_Suicide_Rate
+    FROM
+    countrie_rate 
+ORDER BY 
+    Youth_Suicide_Rate DESC
+
+# Transform into dataframe, and plot the dataset.
+cr = coutry_rate.DataFrame() 
+cr.head(6)
+
+x=cr.Country
+y=cr['Youth_Suicide_Rate']
+
+x_ticks = range(len(x))
+fig,ax = plt.subplots(figsize=(20,8))
+bars=sns.barplot(x=x, y=y, palette="crest", ax=ax)
+
+
+plt.xticks(x_ticks,x, fontsize=14,rotation=30)
+plt.yticks(fontsize=14 )
+plt.title('Youth Suicide Rate by Different Countries', fontsize=20, fontweight='bold')
+plt.ylabel('Youth Suicide Rate (per 100,000)',fontsize=16)
+plt.xlabel ('Countries',fontsize=16)
+ax.yaxis.grid(linewidth=0.5,color='black')
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.set_axisbelow(True)
+plt.show()
+
+
+This plot is showing us that New Zealand ranks the sixth highest youth suicide rate in the world at the time when data was collected.
+
+## 2. Select female, male and total suicide rate of NZ.
+
+%%sql sqlite://
+SELECT Female,
+        ROUND(MALE,1) AS MALE,
+        ROUND(TOTAL,1) AS TOTAL,
+        YEAR
+        FROM gender_rate
+
+## 3. Select suicide rates of all existed age groups of male 
+
+%%sql male_age <<
+SELECT 
+    "Age(15-24)","Age(25-44)","Age(45-64)","Age(65+)",year
+    FROM
+    male_age 
+ORDER BY 
+    year
+    
+
+
+# Transform the SQL result into panda dataframe.
+ma = male_age.DataFrame() 
+ma=ma.set_index('year')
+ma.head()
+
+# Plot the result.
+fig,ax = plt.subplots(figsize=(20,8))
+sns.lineplot(data=ma, palette="husl", linewidth=2.5)
+
+plt.xticks(range(1996, 2018,2), fontsize=14)
+plt.yticks(fontsize=14 )
+
+plt.title(' Suicide Rate: 1996-2018', fontsize=20, fontweight='bold')
+plt.ylabel(' Suicide Rate(per 100,000)',fontsize=16, weight='bold')
+plt.xlabel ('Year',fontsize=16,weight='bold')
+plt.box(False)
+
+ax.yaxis.grid(linewidth=0.5,color='silver')
+ax.set_axisbelow(True)
+plt.show()
+
+
+### Graph
+As we can see from the line graph, the average suicide rate for each age group across the 21 years are fluctuating. Apparently, the youth (Age 15-24) group has the most numbers of local maximum, and its highest rate, also the highest point among the age groups and over the year, appears in 1997 at approximately 42 per 100,000. <br>
+On average, Age(65+) and Age(45-64) have lower suicide rate as compared to youth Age(15-24) and Age (25-44) over the 21 years, but Age(65+) group is more stable, which is fluctuating in a range of (15,25), while Age(45-64) in a range of (10,30). <br>
+Age(25-44) and Age(15-24) are fluctuating in a range of (20,35) and (20,45) respectively. Even these two groups have a higher rates at the starting point, their average rates are decreasing for the year variable approaching 2017.
+
+
+## 4. Select all existed age groups from male_rate and select the same from female_age, and merge two table into one.
+
+%%sql
+
+SELECT *
+FROM male_age as  ma
+LEFT JOIN
+        (SELECT *
+        FROM female_age) as fa
+ON ma.year=fa.year
+LIMIT 5   
+
+
+
+We can easily compare the suicide rates for both male and female groups. The youth group (Age 15-24) for male has higher average suicide rate than female youth group.<br>
+On average, the youth group has higher suicide rates than other existing age groups in both gender groups.
+
+## 5. Use CASE to assign suicide rates into different status
+
+## Applying Aggregation Functions
+
+# Find the average, minimum and maximum values of Total
+%%sql sqlite://
+SELECT ROUND(AVG(Total),2) as Average, MAX(TOTAL), MIN(TOTAL)
+FROM gender_rate 
+
+## Find quantile range for 'TOTAL' variable to be used as boundaries to assign cases the next step.
+
+%%sql sqlite://
+    SELECT 
+        ROUND(TOTAL,1) AS TOTAL,
+        YEAR,
+        NTILE(4) OVER (ORDER BY total) AS total_quartile
+    FROM gender_rate
+
+%%sql sqlite://
+SELECT
+    total_quartile,
+    MAX(TOTAL) AS quartile_break
+FROM(
+    SELECT
+        TOTAL,
+        year,
+        NTILE(4) OVER (ORDER BY total) AS total_quartile
+    FROM gender_rate) AS quartiles
+WHERE total_quartile IN (1, 3)
+GROUP BY total_quartile
+
+The average suicide rate is 22.29 per 100,000, the first quantile is 16.4 and the third quantile is 24.6. Thus, we use these values to be our grouping criterias.
+
+
+%%sql sqlite://
+SELECT 
+    year,
+    ROUND(TOTAl,1) as Total,
+    CASE WHEN Total>24.6 THEN 'High_Rate'
+         WHEN 16.4<Total<24.6 THEN 'Medium_Rate' 
+    ELSE 'Low_Rate' 
+    END   
+    AS Status    
+FROM gender_rate 
+ORDER BY Total DESC
+
+### NOTE
+I have noticed that, on my computer, the result only contains the first two status, no matter what certain cases were put in the first two and the coding structure had been double-checked. I tried to look up this issue online, but ending up no solution.  
+
+### 6. Select 'status' and count how many cases in each level
+
+%%sql 
+SELECT 
+    STATUS,
+   
+    Count(*)
+    
+FROM (
+    SELECT 
+    year,
+    ROUND(Male,1) as Male,
+    CASE WHEN Total>24.6 THEN 'High_Rate'
+         WHEN 16.4<Total<24.6 THEN 'Medium_Rate' 
+    ELSE 'Low_Rate'
+    END
+    AS Status    
+FROM gender_rate )
+GROUP BY STATUS
+
+
+# Find the Q1 AND Q3 value of this variable
+%%sql sqlite://
+SELECT
+    male_quartile,
+    MAX(MALE) AS quartile_break
+FROM(
+    SELECT
+        MALE,
+        year,
+        NTILE(4) OVER (ORDER BY MALE) AS male_quartile
+    FROM gender_rate) AS quartiles
+WHERE male_quartile IN (1, 3)
+GROUP BY male_quartile
+
+# Count the number of cases for each level.
+%%sql 
+SELECT 
+    STATUS,
+   
+    Count(*)
+    
+FROM (
+    SELECT 
+    year,
+    ROUND(Male,1) as Male,
+    CASE WHEN Male>35.4 THEN 'High_Rate'
+         WHEN 22.7<Male<35.4 THEN 'Medium_Rate' 
+    ELSE 'Low_Rate' 
+    END   
+    AS Status    
+FROM gender_rate )
+GROUP BY STATUS
+
+
+### 7. Join two tables together.
+
+%%sql
+
+SELECT *
+FROM maori_male as  mm
+LEFT JOIN
+        (SELECT *
+        FROM nonmaori_male) as nm
+ON mm.year=nm.year
+LIMIT 5   
+
+
+
+## VIEW 1
+
+%sql DROP VIEW NON_MaoriRate
+
+%%sql 
+CREATE VIEW NON_MaoriRate AS 
+
+    SELECT 
+        STATUS,
+   
+        Count(*) AS COUNT
+    
+    FROM (
+        SELECT 
+        year,
+        ROUND(Non_Maori_Male_Rate,1) as Non_Maori_Male_Rate,
+        CASE WHEN Non_Maori_Male_Rate>30 THEN 'High_Rate'
+             WHEN Non_Maori_Male_Rate<20 THEN 'Low_Rate' 
+        ELSE 'Medium_Rate' 
+        END   
+        AS Status    
+    FROM nonmaori_male )
+    GROUP BY STATUS
+    ORDER BY Non_Maori_Male_Rate DESC
+
+%%sql
+SELECT * 
+FROM NON_MaoriRate
+
+## VIEW 2
+
+%%sql 
+CREATE VIEW TOTAL_STATUS AS
+    SELECT 
+        STATUS,
+   
+        Count(*) as counts
+    
+    FROM (
+            SELECT 
+            year,
+            ROUND(TOTAl,1) as Total,
+            CASE WHEN Total>24.6 THEN 'High_Rate'
+                 WHEN 16.4<Total<24.6 THEN 'Medium_Rate' 
+            ELSE 'Low_Rate'
+            END
+            AS Status    
+    FROM gender_rate)
+    GROUP BY STATUS
+
+
+%%sql 
+SELECT Status, MAX(Counts) as Major_Group 
+FROM TOTAL_STATUS
+
+Based on the result, the majority suicide rates over the years are low to medium level. The'High_Rate' status is minority.
+
+## CONCLUSION
+NZ youth suicide rate, 15.3 per 100,000, ranks the 6th highest in the world based on the time when the data was collected.
+Our analysis based on the data from our database has shown that the youth (age 15-24) suicide rate is the highest among other adults age groups, and its average suicide rate is decreasing over the 21 years.<br>
+The average suicide rate of male is higher than the female's one for the youth group. <br>
+The lowest total suicide rate appears in the year 1997 of 12.3 per 100,000, while the highest rate appears in 2003 of 53.3 per 100,000. Morevoer, there are five observations out of total 21 observations have been categorised as 'HIGH_RATE' status.<br>
+Further analysis could be planed to focus on the causes and countermeasure of those specific years that have 'High_Rate'. This analysis could countribute to evaluate the sociopsychological development for suicide prevention policy.
+
